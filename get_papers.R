@@ -13,17 +13,17 @@ results$abstract <- as.character(results$abstract)
 # Create a column indicating whether the article is useful or not
 results$useful <- 'no'
 
-# Go through each result and open the url
-for (i in 901:nrow(results)){
-  # beep()
-  message(paste0('Result number ', i, '\n',
-                 results$title[i]))
-  abstract_length <- nchar(as.character(results$abstract[i]))
-  sleep_time <- abstract_length / 250
-  # browseURL(url = results$url[i])
-  print(results$abstract[i])
-  # Sys.sleep(sleep_time)
-}
+# # Go through each result and open the url
+# for (i in 901:nrow(results)){
+#   beep()
+#   message(paste0('Result number ', i, '\n',
+#                  results$title[i]))
+#   abstract_length <- nchar(as.character(results$abstract[i]))
+#   sleep_time <- abstract_length / 250
+#   browseURL(url = results$url[i])
+#   print(results$abstract[i])
+#   Sys.sleep(sleep_time)
+# }
 
 # As you go through each webpage, flag the number if it's useful
 useful <- c(1, 2, 14, 18, 23, 29, 35, 36, 48, 49, 53,
@@ -58,5 +58,27 @@ others_b <- c(685)
 
 # Keep only the useful ones
 to_use <- results[useful,]
+
+# Narrow down even further
+remove <- c(3, 8, 9, 10, 12, 14,
+            21, 22, 24, 25,
+            26, 27, 28, 34, 35,
+            36, 45, 46, 53, 55, 
+            58, 59, 60, 64, 67,
+            75, 80, 81, 82, 84,
+            87, 90, 94, 95, 103,
+            104, 107, 118, 129,
+            130, 132, 134, 141,
+            153, 159)
+# for(i in 1:nrow(to_use)){
+#   message(paste0('', i,
+#                  ': ', to_use$title[i]))
+#   # browseURL(url = to_use$url[i])
+# }
+
+# Remove further filtered articles
+to_use$row_number <- 1:nrow(to_use)
+to_use <- to_use[!to_use$row_number %in% remove, ]
+
 # Write a csv
-# write_csv(to_use, 'papers_to_use.csv')
+write_csv(to_use, 'papers_to_use.csv')
