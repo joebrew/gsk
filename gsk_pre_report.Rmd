@@ -1,0 +1,158 @@
+---
+title: Malaria immunisation across Africa
+author: Estimating the costs of administration/implementation (a work in progress)
+fig_height: 2.6
+fig_width: 4
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: yeti
+---
+
+Elisa Sicuri and Joe Brew
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, comment = NA, error= FALSE, cache = FALSE}
+# No scientific notation
+options(scipen=999)
+
+# Packages 
+library(xtable)
+library(knitr)
+library(ggplot2) 
+library(dplyr)
+library(rgeos)
+library(RColorBrewer)
+library(Rmisc)
+library(rgdal)
+library(raster)
+library(sp)
+library(leaflet)
+library(ggmap)
+library(gsheet)
+library(Hmisc)
+library(maps)
+
+# Basic knitr options
+opts_chunk$set(comment = NA, 
+               echo = FALSE, 
+               warning = FALSE, 
+               message = FALSE, 
+               error = TRUE, # Render report, even with errors
+               cache = F)
+
+```
+
+```{r setup, include=FALSE, echo = FALSE}
+library(knitr)
+knit_engines$set(asis = function(options) {
+  if (options$echo && options$eval) knit_child(text = options$code)
+})
+```
+
+
+```{r}
+#### READ IN AND CLEAN UP DATA
+# Get link of master spreadsheet of vaccination costs
+if('already_read.RData' %in% dir()){
+  load('already_read.RData')
+} else {
+  url_data <- 'https://docs.google.com/spreadsheets/d/1inbYJUdu5uMC0pJOJAA25QCUZ6xFyvWmldjChWlGZok/edit?usp=sharing'
+  url_papers <- 'https://docs.google.com/spreadsheets/d/1If4C6jECPifBweOCsdlQm4E7pC3xTf_B_Blt2ufWYQo/edit?usp=sharing'
+  
+  # Read in as dataframe
+  df <- gsheet2tbl(url_data)
+  papers <- gsheet2tbl(url_papers)
+  
+  # Sort by malaria status
+  papers$has_malaria <- 
+    grepl('malaria', tolower(papers$abstract)) | grepl('malaria', tolower(papers$title))
+  save.image('already_read.RData')
+}
+
+```
+
+```{r}
+# Map of Africa
+x = map('world', 
+        xlim = c(-20, 50),
+    ylim = c(-35, 40),
+    plot = FALSE)
+x$num <- 1:length(x$names)
+cols <- colorRampPalette(brewer.pal(9, 'Spectral'))(length(x$names))
+cols <- sample(cols, length(cols))
+remove <- c(3, 4, 5, 6, 17:21, 41, 55:101, 104, 105, 106, 115, 116, 130, 131, 132, 135:138,
+            141, 143, 163:166)
+x <- x[!x$num %in% remove]
+cols <- cols[!remove]
+# plot(x, type = 'l')
+map('world', 
+        xlim = c(-20, 50),
+    ylim = c(-35, 40),
+    col = cols,
+    fill = TRUE)
+```
+
+# Introduction
+
+This document provides a basic overview of the work in progress that is the GSK malaria immunisation costing estimation. This project is being carried out under the direction of Dr. Elisa Sicuri. Its purpose is to provide country-specific estimates for the non-vaccine costs of implementing large-scale malaria immunisation across sub-saharan Africa.
+
+# Data collection
+
+Given that the a truly large-scale malaria vaccination campaign has _never_ taken place, this study aims to _estimate_ malaria immunisation unit costs indirectly by gathering data on the costs of other vaccination campaigns over the last two decades. 
+
+## Search strategy
+
+For the purposes of both transparency and future reproducibility, we use a standard and automated search strategy. Our time frame of interest is 2000 to present day (June, 2016). Our search query is `r paste0("'((vaccine) OR (vaccination) OR (immunization)) AND (cost) AND (africa)'")`. The code for retrieving the papers and abstracts from PubMed (in the `r paste0("R")` programming language) is available [here](https://github.com/joebrew/gsk/blob/master/search_pubmed.R).
+
+The initial query returned 985 results. We read the abstracts of all 985 papers, and eliminated more than 850 due to any of the following reasons:
+
+- Geographic incompatibility (outside of sub-saharan Africa)
+- Temporal incompatibility (outside of the time range in question)
+- Subject matter irrelevance (non-human or animal vaccines, non-vaccines, opinion pieces, etc.)
+- Lack of quantitative costing information
+- Lack of cost itemization
+
+All 985 "original" papers, prior to manual exclusion, can be obtained (here)[https://github.com/joebrew/gsk/blob/master/pubmed_results.csv?raw=true].
+
+## Selected studies
+
+Below is a complete overview of all `r nrow(papers)` studies that both matched the automated selection criteria _and_ passed the manual filtering steps outlined above.
+
+```{r}
+temp <- papers %>%
+  dplyr::select(title,
+                year, 
+                affiliation,
+                all_authors,
+                url)
+names(temp) <- capitalize(gsub('_', ' ', names(temp)))
+DT::datatable(temp)
+```
+
+# Data analysis
+
+## Itemization and data extraction
+
+Having finished selection, we extract from each study the itemized costs of immunization, excluding the actual purchase of vaccine. The categories are:
+
+- Administration
+- Transportation
+- Wastage
+- Equipment
+- Training
+- Sensitisation
+- Human resources
+
+In some cases, only total/overall costs were available, in which case we used average values from other studies to interpolate item-specific costs.
+
+Following itemization, we standardize all costs from local currencies and past values to the equivalent of 2016 United States Dollars. 
+
+## Geospatial determinants of vaccine cost
+
+Having estimated the cost of vaccine implementation after standardization for time and currency, we can construct a continuous interpolated surface (raster) for vaccine cost. This allows us to generate country and region-specific estimates.
+
+
+## Modeling
+
+In addition to the country- and region-specific implementation costs estimation, we will estimate the effect of macroeconomic factors (GDP per capita, physician density, general indicators of health and health sector performance) on costs. Where significant, we will include these determinants into a final statistical model, which will be generalizable for future cost estimation, as well as more granular cost estimates.
