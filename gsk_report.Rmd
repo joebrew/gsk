@@ -317,7 +317,7 @@ This study aims to estimate the non-vaccine costs of widespread Malaria vaccinat
 
 ### Search strategy
 
-For the purposes of both transparency and future reproducibility, we use a standard and automated search strategy. Our time frame of interest is 2000 to present day (June, 2016). Our search query is `"'((vaccine) OR (vaccination) OR (immunization)) AND (cost) AND (africa)'"`. The code for retrieving the papers and abstracts from PubMed (in the `r paste0("R")` programming language) is available [here](https://github.com/joebrew/gsk/blob/master/search_pubmed.R).
+For the purposes of both transparency and future reproducibility, we use a standard and automated search strategy. Our time frame of interest is 2000 to present day (June, 2016). Our search query is `"'((vaccine) OR (vaccination) OR (immunization)) AND (cost) AND (africa)'"`. The code for retrieving the papers and abstracts from PubMed (in the `"R"` programming language) is available [here](https://github.com/joebrew/gsk/blob/master/search_pubmed.R).
 
 The initial query returned 985 results. We read the abstracts of all 985 papers, and eliminated more than 850 due to any of the following reasons:
 
@@ -702,6 +702,8 @@ row.names(y) <- NULL
 DT::datatable(y)
 ```
 
+Of note in the above table: the cost of introductin (as opposed to routine) vaccination campaigns is greater than $2 USD per dose. Human resources is the greatest expense, while both transportation and wastage also contribute significantly to overall cost.
+
 Ultimately, GDP was not found to be a significant predictor of program cost (p = 0.134). Accordingly, it was removed from the projections model.
 
 
@@ -712,7 +714,7 @@ fit <- old_fit
 
 ## Projections for all of Africa
 
-We can also use our model to project costs for each item onto every African country.
+We can also use our model to project costs for each item onto every African country. The below projections assume an "introductory" (as opposed to "routine") campaign, with 2015 GDP and in 2015 currency.
 
 ```{r}
 countries <- sort(unique(africa@data$COUNTRY))
@@ -752,6 +754,9 @@ x <- x %>%
 # When not availble, just take mean gdp from df
 x$gdp[is.na(x$gdp)] <- mean(df$gdp[!duplicated(df$country)])
 
+# Add introduction
+x$introduction <- TRUE
+
 # Make prediction
 predictions <- predict(fit, x, se.fit = TRUE)
 predictions_df <- data.frame(predicted = as.numeric(predictions$fit),
@@ -762,9 +767,12 @@ predictions_df <- data.frame(predicted = as.numeric(predictions$fit),
 # Combine
 x <- cbind(x, predictions_df)
 # Set to 0 anything that is negative
+x$predicted[x$predicted < 0] <- 0
 x$lwr[x$lwr < 0] <- 0
+x$upr[x$upr < 0] <- 0
 
-x <- x %>% dplyr::select(-lng, -lat)
+x <- x %>% dplyr::select(-lng, -lat, -introduction, -gdp)
+y <- x
 names(x) <- toupper(names(x))
 
 DT::datatable(x)
@@ -773,6 +781,7 @@ DT::datatable(x)
 The below table shows country-specific, all-item point estimates.
 
 ```{r}
+
 # Group by country and add all together
 x <- x %>%
   dplyr::group_by(COUNTRY) %>%
@@ -780,6 +789,19 @@ x <- x %>%
 DT::datatable(x)
 ```
 
+The below table shows item point estimates on average for all African countries.  
+
+```{r}
+# Group by item and get all together
+y <- y %>%
+  dplyr::group_by(type) %>%
+  dplyr::summarise(predicted = mean(predicted))
+total <- sum(y$predicted)
+names(y) <- c('Item', 'Average cost')
+DT::datatable(y)
+```
+
+According to our model, the average cost per dose (for non-routine immunisation programmes) is on the order of `r round(total, digits = 2)` USD.
 
 The below map shows overall (all-item) non-vaccine costs across Africa.
 
@@ -805,6 +827,8 @@ ggplot(data = africa_fortified) +
   ggtitle('Country specific total implementation costs') +
   labs(subtitle = 'USD per dose')
 ```
+
+
 
 # Discussion
 
