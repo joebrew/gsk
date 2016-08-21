@@ -1,13 +1,15 @@
 ---
-title: Malaria immunisation across Africa
-author: Estimating the costs of implementation
-fig_height: 2.6
+title: "Malaria immunisation across Africa"
+author: "Estimating the costs of implementation"
 fig_width: 4
 output:
   html_document:
-    toc: true
-    toc_float: true
     theme: yeti
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+fig_height: 2.6
 ---
 
 Elisa Sicuri and Joe Brew
@@ -36,6 +38,9 @@ library(rgdal)
 library(readr)
 library(Hmisc)
 library(ggthemes)
+library(mgcv)
+library(rasterVis)
+library(broom)
 
 # Basic knitr options
 opts_chunk$set(comment = NA, 
@@ -128,6 +133,7 @@ if('already_read.RData' %in% dir()){
   
   # Remove those that aren't in Africa
   df <- df[df$country != 'Brazil',]
+  df <- df[!df$country %in% c('India', 'Bangladesh', 'Cambodia'),]
   
   # Get currency conversion for foreign currencies
   df$currency <- toupper(df$currency)
@@ -205,16 +211,80 @@ if('already_read.RData' %in% dir()){
   df <- df %>% 
     dplyr::filter(cost < 30)
   
+  # World Bank GDP data
+  gdp <- read_csv('gdp_per_capita.csv', skip = 4)
+  gdp <- gdp[,c(1, 5:60)]
+  gdp <- tidyr::gather(gdp, year, gdp, `1960`:`2015`)
+  
+  africa_gdps <- gdp
+  
+  # Keep only those countries in our data
+  ins <- rep(NA, nrow(gdp))
+  for (i in 1:nrow(gdp)){
+    ins[i] <-
+      grepl(tolower(gdp$`Country Name`[i]), 
+        paste0(tolower(sort(unique(df$country))), collapse = ' '))
+  }
+  gdp <- gdp[ins,]
+  
+  # Make nicer title
+  gdp$Country <- gdp$`Country Name`
+  
+  # Make year numeric
+  gdp$year <- as.numeric(as.character(gdp$year))
+  
+  # Join to df
+  df <- left_join(x = df,
+                  y = gdp %>%
+                    dplyr::rename(country = Country),
+                  by = c('country', 'year'))
+  
+  # Get GDP in years that aren't known
+  for (i in 1:nrow(df)){
+    if(is.na(df$gdp[i])){
+      the_country <- df$country[i]
+      the_year <- df$year[i]
+      has_any_gdp <- the_country %in% sort(unique(gdp$Country))
+      if(has_any_gdp){
+        sub_gdp <- gdp %>% filter(Country == the_country,
+                                  !is.na(gdp))
+        keepers <- which.min(abs(the_year - sub_gdp$year))
+        df$gdp[i] <-
+          mean(sub_gdp$gdp[keepers])
+      } else {
+        # Just get mean for mean year
+        df$gdp[i] <- gdp %>% 
+          filter(year == the_year) %>%
+          group_by(Country) %>% 
+          summarise(gdp = first(gdp)) %>% 
+          summarise(x = mean(gdp)) %>% as.numeric
+      }
+    }
+  }
+  
+  # Get gdps for all countries
+  africa_gdps <-
+    africa_gdps %>%
+    mutate(Country = `Country Name`) %>%
+    group_by(Country) %>%
+    filter(year == max(year)) %>%
+    ungroup
+  
+  # Map of Africa
+  africa <- readOGR('africa_shp', 
+                    'AfricanCountires',
+                    verbose = FALSE)
+
+  # Get latitude longitude
+  africa@data$lng <- coordinates(africa)[,1]
+  africa@data$lat <- coordinates(africa)[,2]
+  
   # Save an image
   save.image('already_read.RData')
 }
 ```
 
-```{r}
-# Map of Africa
-africa <- readOGR('africa_shp', 
-                  'AfricanCountires',
-                  verbose = FALSE)
+```{r, fig.height = 9}
 cols <- colorRampPalette(brewer.pal(9, 'Reds')[3:9])(nrow(africa))
 cols <- sample(cols)
 plot(africa, col = cols, border = NA)
@@ -315,20 +385,26 @@ DT::datatable(x)
 
 All costs reported herein are in 2016 US Dollars.
 
+### Dose standardization
+
+Some papers reported costs per fully immunized person (ie, multiple doses), whereas others reported per dose. For the sake of comparability, all costs were converted to be per dose.
+
 ## Data analysis
 
 ### Point estimates and distributions
 
-Having gathered and standardized item-specific vaccination programme costs, we estimate ranges for each item cost. Given the incompatibility of currency and percentage data, whenever possible we convert percentage data to 2016 USD, using available data to estimate overall cost.
+Having gathered and standardized item-specific vaccination programme costs, we estimate ranges for each item cost. Given the incompatibility of currency and percentage data, whenever possible we convert percentage data to 2016 USD, using available data to estimate overall cost. Additionally, since the range of estimates is high, we include distributions in all visualizations.
 
 ### Geospatial determinants of vaccine cost
 
-Having estimated the cost of vaccine implementation after standardization for time and currency, we can construct a continuous interpolated surface (raster) for vaccine cost. This allows us to generate country and region-specific estimates.
+Having estimated the cost of vaccine implementation after standardization for time and currency, we can construct a continuous interpolated surface (raster) for vaccine cost. This allows us to generate country and region-specific estimates. We construct this surface through the use of a generalized additive model (GAM) using bivariate adaptive smoothing for the spatial (latitude and longitude) inputs. This method employs "basis penalties" to estimate the spatial effect on cost without overfitting to each country's location.
+
+Given that most studies are at the regional and national levels, country centroids are used for locations. Sub-national breakdowns are not taken into consideration.
 
 
 ### Modeling
 
-In addition to the country- and region-specific implementation costs estimation, we will estimate the effect of macroeconomic factors (GDP per capita, physician density, general indicators of health and health sector performance) on costs. Where significant, we will include these determinants into a final statistical model, which will be generalizable for future cost estimation, as well as more granular cost estimates.
+In addition to the country- and region-specific implementation costs estimation, we estimate the effect of macroeconomic factors (GDP per capita) on costs. Though GDP per capita and location are co-linear, we apply a flexible smoothing algorithm to location, whereas we carry out no smoothing for GDP. We include these determinants into a final generalized additive model (a quadratically pensalized generalized linear model), which will be applicable for cross-continent cost estimation.
 
 # Results
 
@@ -456,18 +532,17 @@ DT::datatable(x)
 
 Not enough data on item-specific vaccine costs exist in the literature to form a model in which country itself is a stable predictor of cost. However, we can estimate geography's _general_ effect through generalized additive model.
 
-Our model adjusts for item type, and uses a smoothed spatial surface to estimate the spatial effect of costs. The below map shows this effect.
+Our model adjusts for item type, and uses a smoothed spatial surface to estimate the spatial effect of costs. The below map shows this effect, with the coloring of the surface reflecting the location-specific contribution to implementatoin cost in 2016 USD (per dose).
 
-```{r}
-library(mgcv)
-# Get latitude longitude
-africa@data$lng <- coordinates(africa)[,1]
-africa@data$lat <- coordinates(africa)[,2]
+```{r, fig.height = 7, fig.width = 8}
 x <- df %>%
   dplyr::rename(COUNTRY = country) %>%
   dplyr::left_join(africa@data)
 
 fit <- gam(cost ~ type + s(lng, lat, bs="ad"), data = x)
+
+# Save
+old_fit <- fit
 
 # Make a plot of africa
 fake_africa <- africa@data
@@ -494,12 +569,150 @@ x <- over(df_grid, polygons(africa))
 df_grid_small <- df_grid[!is.na(x),]
 temp <- df_grid_small@data %>% arrange(lng, lat)
 r <- rasterFromXYZ(temp[, c('lng', 'lat', 'prediction')])
-library(rasterVis)
-levelplot(r, contour = TRUE) +
-  layer(sp.lines(africa, lwd=0.8, col='white'))
+# levelplot(r, contour = TRUE) +
+  # layer(sp.lines(africa, lwd=0.8, col='white'))
+plot(r)
 ```
 
 As could be expected, the horn of Africa is likley to incur the highest costs. This could be due to a number of reasons, among them terrain and political instability.
 
+## Integration with external data
 
-# Discussion
+GDP per capita (scraped from the World Bank's data archives) over time was gathered for all countries from which any study was selected (see below chart).
+
+```{r}
+cols <- colorRampPalette(brewer.pal(9, 'Spectral'))(length(unique(gdp$Country)))
+g <-
+  ggplot(data = gdp,
+         aes(x = year,
+             y = gdp,
+             group = Country,
+             color = Country)) +
+  geom_line() +
+  scale_color_manual(name = 'Country',
+                     values = cols) +
+  theme_economist() +
+  theme(legend.text = element_text(size = 6)) +
+  xlab('Year') +
+  ylab('GDP per capita') +
+  ggtitle('GDP per capita for countries in study')
+g
+```
+
+Data were paired for each country for the year in which the study was conducted. In the case of studies spanning multiple years, the year for which the currency value was reported in the study was used. The distribution of country-specific GDP per capita values for the final dataset can be visualized below.
+
+```{r}
+ggplot(data = df,
+       aes(x = gdp)) +
+  geom_density(fill = 'darkgreen', alpha = 0.6) +
+  xlab('GDP per capita (USD)') +
+  ylab('Density') +
+  ggtitle('Distribution of per-study GDP per capita values') +
+  theme_economist()
+```
+
+## Final model
+
+The final model estimates the effect of both space (via smoothed latitude and longitude) and weatlh (via GDP per capita) on the cost of non-vaccine immunisation programme costs. Estimation is carried out by modeling vaccine type, smoothed location, and GDP via a GAM.
+
+```{r}
+# Get overall cost
+x <- df %>%
+  dplyr::rename(COUNTRY = country) %>%
+  dplyr::left_join(africa@data)
+fit <- gam(cost ~ type + s(lng, lat, bs="ad") + gdp, data = x)
+```
+
+The model's coefficient estimates (excluding the smoothed bivariate spatial interpolation estimates, which are uninterpretable) are below.
+
+```{r}
+x <- summary(fit)$p.coeff
+y <- data.frame(x)
+y$item <- row.names(y)
+y <- y %>% dplyr::select(item, x)
+y$x <- round(y$x, digits = 3)
+y$item <- gsub('type', '', y$item)
+names(y) <- c('Item', 'Coefficient')
+row.names(y) <- NULL
+DT::datatable(y)
+```
+
+Ultimately, GDP was not found to be a significant predictor of program cost. Accordingly, it was removed from the model for the purpose of making proejctions which are not over-fit.
+
+
+```{r}
+fit <- old_fit
+```
+
+## Projections for all of Africa
+
+We can also use our model to project costs for each item onto every African country.
+
+```{r}
+countries <- sort(unique(africa@data$COUNTRY))
+types <- sort(unique(df$type))
+
+x <- expand.grid(COUNTRY = countries,
+                 type = types)
+# Get lat long
+x <- x %>%
+  left_join(africa@data %>%
+              filter(!duplicated(COUNTRY)) %>%
+              dplyr::select(COUNTRY, lng, lat))
+
+# Get most recent gdp
+x <- x %>%
+  left_join(africa_gdps %>%
+              dplyr::rename(COUNTRY = Country))
+
+# When not availble, just take mean gdp from df
+x$gdp[is.na(x$gdp)] <- mean(df$gdp[!duplicated(df$country)])
+
+# Make prediction
+predictions <- predict(fit, x, se.fit = TRUE)
+predictions_df <- data.frame(predicted = predictions$fit,
+                             lwr = predictions$fit - (predictions$se.fit * 1.96),
+                             upr = predictions$fit + (predictions$se.fit * 1.96))
+# Combine
+x <- cbind(x, predictions_df)
+# Set to 0 anything that is negative
+x$lwr[x$lwr < 0] <- 0
+
+x <- x %>% dplyr::select(-lng, -lat)
+names(x) <- toupper(names(x))
+
+DT::datatable(x)
+```
+
+
+The below table shows country-specific, all-item point estimates.
+
+```{r}
+# Group by country and add all together
+x <- x %>%
+  dplyr::group_by(COUNTRY) %>%
+  dplyr::summarise(PREDICTED = sum(PREDICTED))
+DT::datatable(x)
+```
+
+The below map shows overall (all-item) non-vaccine costs across Africa.
+
+```{r}
+africa@data <- africa@data %>%
+  left_join(x)
+
+# Fortify africa
+library(maptools)
+africa_fortified <- fortify(africa, by = 'OBJECTID', region = 'COUNTRY')
+# Get estimates
+africa_fortified <-
+  africa_fortified %>%
+  left_join(x,
+            by = c('id' = 'COUNTRY'))
+ggplot(data = africa_fortified) +
+  geom_polygon(aes(x = long,
+                   y = lat,
+                   group = group,
+                   fill = PREDICTED)) +
+  coord_map()
+```
