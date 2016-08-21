@@ -41,6 +41,7 @@ library(ggthemes)
 library(mgcv)
 library(rasterVis)
 library(broom)
+library(maptools)
 
 # Basic knitr options
 opts_chunk$set(comment = NA, 
@@ -279,6 +280,13 @@ if('already_read.RData' %in% dir()){
   africa@data$lng <- coordinates(africa)[,1]
   africa@data$lat <- coordinates(africa)[,2]
   
+  # Define whether it's a trial or not
+  df$trial <- grepl('trial|Trial|TRIAL', df$source)
+  df$introduction <- grepl('introduc|Introduc|INTRODUC', df$source)
+  
+  # Fortify africa
+  africa_fortified <- fortify(africa, by = 'OBJECTID', region = 'COUNTRY')
+  
   # Save an image
   save.image('already_read.RData')
 }
@@ -290,11 +298,14 @@ cols <- sample(cols)
 plot(africa, col = cols, border = NA)
 ```
 
-# Context
+
+# Introduction  
+
+## Context
 
 This document provides an overview of the GSK malaria immunisation costing estimation. This project is being carried out under the direction of Dr. Elisa Sicuri. Its purpose is to provide country-specific estimates for the non-vaccine costs of implementing large-scale malaria immunisation across sub-saharan Africa. It is considered a "work in progress" and is intended for further review and revisions prior to publication.
 
-# Introduction  
+## Justification
 
 Given that the a truly large-scale Malaria vaccination campaign has _never_ taken place, it is impossible to know Malaria immunisation unit costs through direct prior experience. However, it is possible to estimate these costs indirectly by gathering data on the costs of other vaccination campaigns over the last two decades.  
 
@@ -306,7 +317,7 @@ This study aims to estimate the non-vaccine costs of widespread Malaria vaccinat
 
 ### Search strategy
 
-For the purposes of both transparency and future reproducibility, we use a standard and automated search strategy. Our time frame of interest is 2000 to present day (June, 2016). Our search query is `r paste0("'((vaccine) OR (vaccination) OR (immunization)) AND (cost) AND (africa)'")`. The code for retrieving the papers and abstracts from PubMed (in the `r paste0("R")` programming language) is available [here](https://github.com/joebrew/gsk/blob/master/search_pubmed.R).
+For the purposes of both transparency and future reproducibility, we use a standard and automated search strategy. Our time frame of interest is 2000 to present day (June, 2016). Our search query is `"'((vaccine) OR (vaccination) OR (immunization)) AND (cost) AND (africa)'"`. The code for retrieving the papers and abstracts from PubMed (in the `r paste0("R")` programming language) is available [here](https://github.com/joebrew/gsk/blob/master/search_pubmed.R).
 
 The initial query returned 985 results. We read the abstracts of all 985 papers, and eliminated more than 850 due to any of the following reasons:
 
@@ -340,15 +351,31 @@ DT::datatable(temp)
 
 Having finished selection, we extract from each study the itemized costs of immunization, excluding the actual purchase of vaccine. The categories are:
 
-- Administration
-- Equipment
-- Human resources
-- Sensitisation
-- Training
-- Transportation
-- Wastage
+- Administration: All non-vaccine, non-material, and non-personnel costs related to the actual delivery of the vaccine, once at a health facility or other site of immunisation, not covered in any of the below categories.
+
+- Equipment: Materials and supplies, such as syringes, needle disposal boxes, bandages, paper, etc.
+
+- Human resources: All human labor costs, including salary and wages.
+
+- Sensitisation: All public awareness, advertising or other opinion-influencing actiity.
+
+- Training: Education and training for programme personnel, other than that which they would have already received independely of programme existence.
+
+- Transportation: All costs associated with moving vaccine and/or personnel and/or supplies for the vaccination campaign, including (but not limited to) cold storage.
+
+- Wastage: Any non-productive cost.
 
 In some cases, all of the above items were available. In most, only some of them were disclosed. In many cases, costs were given as a percentage of total, rather than in currency. 
+
+### Cost types
+
+Studies variably reported cost "types" such as fixed, in-kind, recurring, start-up, variable, etc. These categories were often overlapping and incompatible. They are intentionally excluded due to the lack of comparability across studies.
+
+By the same token, a minority of studies noted, albeit indirectly, the distinction between economic and financial costs. To the extent that this distinction was infrequent and inconsistent, it is also ignored.
+
+We distinguished between "trial" studies, and those implementing more routinely administered vaccines. Likewise, we distinguished between studies pertaining to the "introduction" of a vaccine in an area, versus those that pertained to costing of a vaccine that was already "routine".
+
+### Final inclusion dataset
 
 The raw itemized data is below:
 
@@ -430,6 +457,35 @@ What follows is a table of the same data
 ```{r}
 DT::datatable(x)
 ```
+
+
+A total of `r length(unique(df$country))` country combinations were included in the final dataset. Their distribution can be visualized below.
+
+```{r}
+x <- df %>%
+  group_by(country) %>%
+  dplyr::summarise(n = length(unique(source))) %>%
+  arrange(desc(n))
+x$country <- factor(x$country, levels = x$country)
+ggplot(data = x,
+       aes(x = country,
+           y = n)) +
+  geom_bar(stat = 'identity',
+           fill = 'darkred',
+           alpha = 0.6) +
+  theme_economist() +
+  xlab('Country') +
+  ylab('Studies') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Below is a table of the same data.
+
+```{r}
+names(x) <- c('Country', 'Articles')
+DT::datatable(x)
+```
+
 
 What follows are charts showing the distribution of costs (both in currency and extrapolated from percentages) for each of the 7 implementation categories. The vertical line shows the average cost.
 
@@ -539,7 +595,11 @@ x <- df %>%
   dplyr::rename(COUNTRY = country) %>%
   dplyr::left_join(africa@data)
 
-fit <- gam(cost ~ type + s(lng, lat, bs="ad"), data = x)
+# Get bbox of our countries
+lats <- c(min(x$lat, na.rm = TRUE), max(x$lat, na.rm = TRUE))
+lngs <- c(min(x$lng, na.rm = TRUE), max(x$lng, na.rm = TRUE))
+
+fit <- gam(cost ~ type + s(lng, lat, bs="ad") + introduction, data = x)
 
 # Save
 old_fit <- fit
@@ -547,6 +607,7 @@ old_fit <- fit
 # Make a plot of africa
 fake_africa <- africa@data
 fake_africa$type <- 'Administration'
+fake_africa$introduction <- TRUE
 predictions <- predict(fit, fake_africa)
 
 # Make a grid of africa
@@ -559,6 +620,7 @@ df_grid <- expand.grid(lng = seq(bbox(africa)[1,1],
 df_grid$x <- df_grid$lng
 df_grid$y <- df_grid$lat
 df_grid$type <- 'Administration'
+df_grid$introduction <- TRUE
 df_grid$prediction <- predict(fit, df_grid)
 # Make spatial
 coordinates(df_grid) <- ~x+y
@@ -571,10 +633,12 @@ temp <- df_grid_small@data %>% arrange(lng, lat)
 r <- rasterFromXYZ(temp[, c('lng', 'lat', 'prediction')])
 # levelplot(r, contour = TRUE) +
   # layer(sp.lines(africa, lwd=0.8, col='white'))
+
+
 plot(r)
 ```
 
-As could be expected, the horn of Africa is likley to incur the highest costs. This could be due to a number of reasons, among them terrain and political instability.
+
 
 ## Integration with external data
 
@@ -613,17 +677,17 @@ ggplot(data = df,
 
 ## Final model
 
-The final model estimates the effect of both space (via smoothed latitude and longitude) and weatlh (via GDP per capita) on the cost of non-vaccine immunisation programme costs. Estimation is carried out by modeling vaccine type, smoothed location, and GDP via a GAM.
+The final model estimates the effect of both space (via smoothed latitude and longitude), weatlh (via GDP per capita), and programme type (routine vs. introduction) on the cost of non-vaccine immunisation programme costs. Estimation is carried out by modeling vaccine type, smoothed location, and GDP via a GAM.
 
 ```{r}
 # Get overall cost
 x <- df %>%
   dplyr::rename(COUNTRY = country) %>%
   dplyr::left_join(africa@data)
-fit <- gam(cost ~ type + s(lng, lat, bs="ad") + gdp, data = x)
+fit <- gam(cost ~ type + s(lng, lat, bs="ad") + gdp + introduction, data = x)
 ```
 
-The model's coefficient estimates (excluding the smoothed bivariate spatial interpolation estimates, which are uninterpretable) are below.
+The model's coefficient estimates (excluding the smoothed bivariate spatial interpolation estimates, which are too high density to be printed in one table) are below.
 
 ```{r}
 x <- summary(fit)$p.coeff
@@ -631,16 +695,18 @@ y <- data.frame(x)
 y$item <- row.names(y)
 y <- y %>% dplyr::select(item, x)
 y$x <- round(y$x, digits = 3)
-y$item <- gsub('type', '', y$item)
+y$item <- gsub('type|TRUE', '', y$item)
+y$item <- Hmisc::capitalize(y$item)
 names(y) <- c('Item', 'Coefficient')
 row.names(y) <- NULL
 DT::datatable(y)
 ```
 
-Ultimately, GDP was not found to be a significant predictor of program cost. Accordingly, it was removed from the model for the purpose of making proejctions which are not over-fit.
+Ultimately, GDP was not found to be a significant predictor of program cost (p = 0.134). Accordingly, it was removed from the projections model.
 
 
 ```{r}
+# Rever to old model
 fit <- old_fit
 ```
 
@@ -660,6 +726,24 @@ x <- x %>%
               filter(!duplicated(COUNTRY)) %>%
               dplyr::select(COUNTRY, lng, lat))
 
+# For those outside of the space for which the model was estimated
+# simply replace coordinates with extremes
+for (i in 1:nrow(x)){
+  if(x$lng[i] < min(lngs)){
+    x$lng[i] <- min(lngs)
+  }
+  if(x$lng[i] > max(lngs)){
+    x$lng[i] <- max(lngs)
+  }
+  
+  if(x$lat[i] < min(lats)){
+    x$lat[i] <- min(lats)
+  }
+  if(x$lat[i] > max(lats)){
+    x$lat[i] <- max(lats)
+  }
+}
+
 # Get most recent gdp
 x <- x %>%
   left_join(africa_gdps %>%
@@ -670,9 +754,11 @@ x$gdp[is.na(x$gdp)] <- mean(df$gdp[!duplicated(df$country)])
 
 # Make prediction
 predictions <- predict(fit, x, se.fit = TRUE)
-predictions_df <- data.frame(predicted = predictions$fit,
-                             lwr = predictions$fit - (predictions$se.fit * 1.96),
-                             upr = predictions$fit + (predictions$se.fit * 1.96))
+predictions_df <- data.frame(predicted = as.numeric(predictions$fit),
+                             lwr = as.numeric(predictions$fit) - 
+                               (as.numeric(predictions$se.fit) * 1.96),
+                             upr = as.numeric(predictions$fit) + 
+                               (as.numeric(predictions$se.fit) * 1.96))
 # Combine
 x <- cbind(x, predictions_df)
 # Set to 0 anything that is negative
@@ -684,7 +770,6 @@ names(x) <- toupper(names(x))
 DT::datatable(x)
 ```
 
-
 The below table shows country-specific, all-item point estimates.
 
 ```{r}
@@ -695,15 +780,14 @@ x <- x %>%
 DT::datatable(x)
 ```
 
+
 The below map shows overall (all-item) non-vaccine costs across Africa.
 
-```{r}
+```{r, fig.height = 8}
 africa@data <- africa@data %>%
   left_join(x)
 
-# Fortify africa
-library(maptools)
-africa_fortified <- fortify(africa, by = 'OBJECTID', region = 'COUNTRY')
+
 # Get estimates
 africa_fortified <-
   africa_fortified %>%
@@ -714,5 +798,34 @@ ggplot(data = africa_fortified) +
                    y = lat,
                    group = group,
                    fill = PREDICTED)) +
-  coord_map()
+  coord_map() +
+  theme_economist() +
+  xlab('Longitude') +
+  ylab('Latitude') +
+  ggtitle('Country specific total implementation costs') +
+  labs(subtitle = 'USD per dose')
 ```
+
+# Discussion
+
+## Main findings 
+
+The principal contribution of this study is the generation of an estimate, based purely on costs in a similar context, of the non-vaccine immunisation programme implementation costs for the roll-out of a Malaria vaccine across Africa. To the authors' knowledge, this is the first study to attempt su
+
+## Limitations
+
+This study, and its results, are not without limitations. Chief among them is the small sample size from which estimates were modeled (and, by extension, the corresponding wide confidence intervals). Secondly, lack of comparability of cost types makes the itemizing of costs a somewhat futile exercise. Third, this study assumes that administration of the roll-out of a malaria vaccine will be similar to that of other vaccines (a possible, but by no means certain, scenario). Finally, this study is narrow in scope, only looking at vaccine studies in Africa, and ignoring other areas where Malaria is endemic (Southeast Asia, Central and South America, etc.).
+
+## Further research
+
+Further research is needed, particularly into those factors which determine vaccine programme cost. A particular challenge, and one encountered in this study at multiple points, is the lack of standardisation (and by extension, comparability) among studies. 
+
+For example, whereas in some studies "administration" included personnel (ie, "human resources" costs), others did not. Some studies published wages and salaries, but not the amount of person-time allocated to the programme. The distinction between fixed and variable costs appeared in fewer than half of studies, and many studies made no mention of whether or how they attempted to quantify "in-kind" costs.
+
+To address this issue, we propose to devise and publish (as a separate paper) a "template" of best practices for reporting vaccine cost studies.
+
+# Details
+
+Full code and data for this report are available at [https://github.com/joebrew/gsk](https://github.com/joebrew/gsk). This work was carried out by Elisa Sicuri and Joe Brew, in collaboration with GSK. A debt of gratitude is owed to Celine Aerts, who helped with data collection.
+
+All analysis was carried out in the R programming language in `r x$R.version$version.string` on a `r x$R.version$system` system. 
