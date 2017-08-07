@@ -1,7 +1,8 @@
 ---
-title: "Systematic review and analysis of immunisation administration costs across Africa"
+title: Systematic review and analysis of immunisation administration costs across
+  Africa
 author: "Estimating the costs of malaria vaccine implementation"
-fig_width: 4
+fig_height: 2.6
 output:
   html_document:
     theme: yeti
@@ -9,11 +10,11 @@ output:
     toc_float: yes
   pdf_document:
     toc: yes
-fig_height: 2.6
+fig_width: 4
 bibliography: bibliography.bib
 ---
 
-Elisa Sicuri and Joe Brew
+Joe Brew and Elisa Sicuri
 
 ```{r, echo = FALSE, warning = FALSE, message = FALSE, comment = NA, error= FALSE, cache = FALSE}
 # No scientific notation
@@ -65,6 +66,9 @@ knit_engines$set(asis = function(options) {
 ```{r}
 # Functions
 source('helpers.R')
+
+# Read in PPP data, downloaded from https://raw.githubusercontent.com/datasets/ppp/master/data/ppp-gdp.csv
+ppp <- read_csv('ppp.csv')
 
 #### READ IN AND CLEAN UP DATA
 # Get link of master spreadsheet of vaccination costs
@@ -142,12 +146,11 @@ if('already_read.RData' %in% dir()){
   
   # Get currency conversion for foreign currencies
   df$currency <- toupper(df$currency)
-  currency <- read.csv('currency.csv', header = FALSE )
+  currency <- read.csv('currency.csv', header = TRUE )
   currency <- currency[,c(4,5,6)]
   names(currency) <- c('currency', 'date', 'value')
   currency$date <- as.Date(substr(currency$date, 1, 10))
-  currency <- currency %>%
-    filter(currency %in% c('EUR', 'ZAR'))
+  currency <- currency 
   df$date <- as.Date(paste0(df$year, '-06-01'))
   df <- left_join(x = df,
                  y = currency,
@@ -287,7 +290,8 @@ if('already_read.RData' %in% dir()){
   # Smaller africa
   africa_small <- thinnedSpatialPoly(SP = africa,
                                      minarea = 0,
-                                     tolerance = 2)
+                                     tolerance = 5,
+                                     topologyPreserve = TRUE)
   
   # Define whether it's a trial or not
   df$trial <- grepl('trial|Trial|TRIAL', df$source)
@@ -299,6 +303,11 @@ if('already_read.RData' %in% dir()){
   # Save an image
   save.image('already_read.RData')
 }
+
+# Fuzzy match the country names
+
+fuzzy <- cism::fuzzy_match(x = sort(unique(ppp$Country)),
+                           y = sort(unique(df$country)))
 ```
 
 ```{r, fig.height = 9}
@@ -358,7 +367,9 @@ Studies variably reported cost "types" such as fixed, in-kind, recurring, start-
 
 By the same token, a minority of studies noted, albeit indirectly, the distinction between economic and financial costs. To the extent that this distinction was infrequent and inconsistent, it is also ignored.
 
-We distinguished between "trial" studies, and those implementing more routinely administered vaccines. Likewise, we distinguished between studies pertaining to the "introduction" of a vaccine in an area, versus those that pertained to costing of a vaccine that was already "routine".
+We distinguished between "trial" studies (also referred to as "campaign" or "non-routine"), and those implementing more regularly administered vaccines (referred to simply as "routine") Likewise, we distinguished between studies pertaining to the "introduction" of a vaccine in an area for the first time, versus those that pertained to costing of a vaccine that was already in place, ie "non-introduction".
+
+Among our studies, all trial costs happened to be from non-introduction studies (ie, they were trials of a vaccine that was already used in some shape or form), whereas non-trial studies where sometimes introductory in nature (approximatey 1/3 of non-trial studies) and the majority was non-introductory.
 
 ### Final inclusion dataset
 
@@ -372,14 +383,14 @@ names(x) <- toupper(names(x))
 DT::datatable(x)
 ```
 
-A full table of the raw itemized data is available in the appendix.
 
 ### Currency standardization
 
 Following itemization, we standardize all costs from local currencies and past values to the equivalent of 2016 United States Dollars. For currency conversion from local to US dollars, we use publicly available exchange rates from [Quandl](https://www.quandl.com/collections/usa/usa-currency-exchange-rate). 
 
 ```{r, eval = TRUE, results = 'hide'}
-x <- currency
+x <- currency %>%
+  filter(grepl('-01-01', date))
 x <- x %>% arrange(date)
 names(x) <- c('Currency', 'Date', 'Cost of 1 USD')
 DT::datatable(x)
@@ -388,7 +399,7 @@ DT::datatable(x)
 For inflation adjustment, we use the "Consumer Price Index" from the [United States Bureau of Labor and Statistics](http://data.bls.gov/cgi-bin/cpicalc.pl). 
 
 
-```{r, eval = TRUE, results = 'hide'}
+```{r, eval = TRUE}
 x <- inflation %>%
     mutate(year = format(date, '%Y')) %>%
   dplyr::select(year, value_2016) %>%
@@ -397,8 +408,166 @@ x <- inflation %>%
 DT::datatable(x)
 ```
 
-
 All costs reported herein are in 2016 US Dollars.
+
+### Purchasing price parity
+
+We also adjust currency for purchasing price parity, as estimated by the World Bank [@wbdata]. For our purposes, "adjustment" refers to the process by which we convert from local currency to 2016 USD in PPP. In many cases, this meant "back-engineering" the local currency, since original papers often report in USD.
+
+Below is a table of the PPP values used for this conversion. Full code for the "back-engineering" is available on this paper's github repository [@brew].
+```{r}
+DT::datatable(tidyr::spread(ppp %>%
+                              filter(Year >= 2000) %>%
+                              mutate(PPP = round(PPP, 2)), 
+                            key = Year, 
+                            value = PPP) %>%
+  dplyr::select(-`Country ID`)) 
+```
+
+```{r}
+# Create a table of country, currency, so as to calculate PPP
+cc <- 
+  data_frame(country = c('Benin',
+                        'Burkina faso',
+                        'Chad',
+                        'Egypt',
+                        'Ethiopia',
+                        'Gambia',
+                        'Ghana',
+                        'Ghana and benin',
+                        'Guinea',
+                        'Kenya',
+                        'Kenya and uganda',
+                        'Malawi',
+                        'Mozambique',
+                        'Multiple',
+                        'Senegal',
+                        'South africa',
+                        'Tanzania',
+                        'Uganda',
+                        'Zambia'),
+             currency = c('XOF',
+                          'XOF',
+                          'XAF',
+                          'EGP',
+                          'ETB',
+                          'GMD',
+                          'GHS',
+                          'GHS',
+                          'GNF',
+                          'KES',
+                          'KES',
+                          'MWK',
+                          'MZN',
+                          'USD',
+                          'XOF',
+                          'ZAR',
+                          'TZS',
+                          'UGX',
+                          'ZMW'))
+
+# Create a table for matching countries between ppp and df
+ppp_df <-
+  data_frame(country = c('Benin',
+                        'Burkina faso',
+                        'Chad',
+                        'Egypt',
+                        'Ethiopia',
+                        'Gambia',
+                        'Ghana',
+                        'Ghana and benin',
+                        'Guinea',
+                        'Kenya',
+                        'Kenya and uganda',
+                        'Malawi',
+                        'Mozambique',
+                        'Multiple',
+                        'Senegal',
+                        'South africa',
+                        'Tanzania',
+                        'Uganda',
+                        'Zambia'),
+             new_country = c('Benin',
+                        'Burkina Faso',
+                        'Chad',
+                        'Egypt, Arab Rep.',
+                        'Ethiopia',
+                        'Gambia, The',
+                        'Ghana',
+                        'Ghana',
+                        'Guinea',
+                        'Kenya',
+                        'Kenya',
+                        'Malawi',
+                        'Mozambique',
+                        'United States',
+                        'Senegal',
+                        'South Africa',
+                        'Tanzania',
+                        'Uganda',
+                        'Zambia'))
+
+# Join the currencies to the dataframe
+df <- 
+  left_join(df,
+            cc)
+
+# Clean up currency
+currency <-
+  currency %>%
+              mutate(year = as.numeric(substr(date, 1, 4))) %>%
+              dplyr::select(-date) %>%
+              dplyr::rename(exchange_rate = value) 
+currency <-
+  currency %>%
+  dplyr::group_by(currency, year) %>%
+  dplyr::summarise(exchange_rate = mean(exchange_rate, na.rm = TRUE)) %>%
+  ungroup
+  
+
+# Get the exchange rate
+df <-
+  left_join(df,
+            currency)
+
+# If no currency for that year, get the oldest value
+for (i in 1:nrow(df)){
+  if(is.na(df$exchange_rate[i])){
+    this_currency <- df$currency[i]
+    if(this_currency != 'USD'){
+          oldest_value <- currency %>% filter(currency == this_currency) %>% filter(year == min(year)) %>% .$exchange_rate
+    df$exchange_rate[i] <- oldest_value
+    }
+  }
+}
+df$exchange_rate <-
+  ifelse(df$currency == 'USD', 
+         1,
+         df$exchange_rate)
+
+
+df <- df %>%
+  left_join(ppp_df)
+
+
+# Join ppp to df
+df <-
+  left_join(df,
+            ppp %>%
+              dplyr::select(-country) %>%
+              dplyr::rename(country = Country,
+                            year = Year) %>%
+              dplyr::select(-`Country ID`),
+            by = c('new_country'='country',
+                   'year'='year'))
+
+# Calculate ppp adjusted USD
+df$ppp_adjustment <- df$exchange_rate / df$PPP
+
+# Adjust all values for this
+df$cost_ppp <- df$cost / df$ppp_adjustment
+
+```
 
 ### Dose standardization
 
@@ -442,7 +611,7 @@ The below diagram shows the flow of article selection:
 
 \begin{center}
 
-! [PRISMA diagram] (img/prisma.jpg)
+![](img/prisma.jpg)
 
 \end{center}
 
@@ -517,10 +686,11 @@ DT::datatable(x)
 
 What follows are charts showing the distribution of dose-specific costs (both in currency and extrapolated from percentages) for each of the 7 implementation categories. The vertical line shows the average cost.
 
+
+
 ```{r}
-types <- sort(unique(df$type))
-for(i in 1:length(types)){
-  this_type <- types[i]
+# Define function for charting distribution of costs based on type
+type_chart <- function(this_type){
   temp <- df %>% filter(type == this_type)
   the_mean <- mean(temp$cost)
   g <- ggplot(data = temp,
@@ -532,9 +702,67 @@ for(i in 1:length(types)){
     geom_vline(xintercept = the_mean, lty = 2) +
     ggtitle(this_type) +
     labs(subtitle = paste0('Average cost of ', round(the_mean, digits = 2)))
-  print(g)
+  return(g)
 }
 ```
+
+### Administration
+
+The average administration cost per dose was close to \$2 USD, with half of studies having an administration cost of less than \$0.53.
+
+```{r}
+type_chart('Administration')
+```
+
+ ### Equipment
+ 
+ The distribution of equipment costs observed in studies was distinctly bi-model. 6 of the 9 studies which reported equipment had a cost of less than \$0.30 USD; the other 3 ranges from \$0.73 to \$3.43. The wide wariance may be explained due to different studies having different (unreported) definitions of what constitutes equipment.
+
+```{r}
+type_chart('Equipment')
+```
+
+ ### Human resources
+
+Costs for human resources varied widely, but the distribution is distinctly left-skewed, with half of studies reporting human resources costs of less than \$2.52. We can attribute to trial or non-routine expenditures the fact that several studies were such outliers; on the contrary, the two most expensive studies in terms of human resources where routine, non-introduction immunization campaigns, a fact which suggests that inclusion criteria for what constitutes "human resources costs" likely differed from study to study.
+
+```{r}
+type_chart('Human resources')
+```
+
+### Sensitisation
+
+Sensitisation costs were low across all studies. One outlier - an oral cholera vaccine campaign in urban Mozambique - reported particularly high costs, but 90% of studies reported sensitisation costs of \$0.20 or less.
+
+```{r}
+type_chart('Sensitisation')
+```
+
+ ### Training
+ 
+Training costs were low across all studies The highest training costs were associated with programs in which a new vaccine was introduced alongside another into an already existing national program.
+
+```{r}
+type_chart('Training')
+```
+
+ ### Transportation
+
+We observed wide variance in transporation costs. Though half of studies had costs of less than \$0.67 USD, several studies had costs of more than \$1 USD (and in one case, nearly \$20 USD). The cause for this variation is not clear.
+
+```{r}
+type_chart('Transportation')
+```
+
+ ### Wastage
+
+Wastage costs varied widely per study. Those with the highest costs involved Hepatitis B or jet injection vaccinations.
+
+```{r}
+type_chart('Wastage')
+```
+
+
 
 The below table shows the same costs.
 
@@ -546,6 +774,92 @@ x <- df %>%
                    Minimum = min(cost),
                    articles = length(unique(source)))
 DT::datatable(x)
+```
+
+### Differences in cost estimations
+
+Despite both quantitative and qualitative components to our analysis of which factors might account for the large differences in costs, we are unable to make conclusions in this area. Due to a lack of standardization in both (a) what is reported (some studies report all of the cost types we mention, others only a portion) and (b) how it is reported, studies are not directly comparable. Evidence for this exists in the below bar chart, showing the maximum cost for each expenditure type as a percentage of the minimum cost in the same category. Though some variance is to be expected, we suspect that much of the variance observed is not due to actual differences in cost, but rather due to differences in what is reported in each cost category.
+
+
+```{r}
+x <- df %>% 
+  mutate(cost = ifelse(cost == 0, NA, cost)) %>%
+  group_by(type) %>% 
+  dplyr::summarise(x = max(cost, na.rm = T) / 
+                     min(cost, na.rm = T) * 100) %>%
+  arrange(x) %>%
+  mutate(type = factor(type, levels = type))
+
+ggplot(data = x,
+       aes(x = type,
+           y = x)) +
+  geom_bar(stat = 'identity',
+           alpha = 0.6,
+           fill = 'darkred') +
+  scale_y_log10() +
+  labs(x = 'Type of expenditure',
+       y = 'Variance (log scale)',
+       title = 'Variance in costs by type',
+       subtitle = 'Maximum observed cost as percentage of minimum') +
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme_economist()
+```
+
+### Cost per dose by campaign type
+
+In an effort to better understand the wide variance between costs, we examined the effect of campaign type. Surprisingly, we found that routine vaccination campaigns had higher reported costs than trial campaigns. We attribute this fact to the likely under-reporting and non-reporting of those costs which trials often consider "in-kind". In other words, we suspect that those economists who costed "routine" programs were more likely to be thorough and comprehensive in accounting for all costs than those who costed introductory programs (who were more likely to focus more only on those costs which differed from the "routine" program).
+
+```{r}
+x <- df %>%
+  dplyr::mutate(trial = ifelse(trial, 'Trial', 'Routine'),
+         introduction = ifelse(introduction, 'Introductory', 'Not introductory')) %>%
+  dplyr::mutate(campaign_type = paste0(trial, '-', introduction)) 
+fit <- lm(cost ~ type + campaign_type, data = x)
+ci <- confint(fit)
+ci <- broom::tidy(ci)
+ci$mid <- coef(fit)
+
+# Make a dataframe for predicting
+fake_df <- data_frame(type = 'Wastage',
+                      campaign_type = c('Routine-Introductory',
+                                        'Routine-Not introductory',
+                                        # 'Trial-Introductory',
+                                        'Trial-Not introductory'))
+fake_df$predicted <- predict(fit, fake_df) - coef(fit)['typeWastage']
+
+ggplot(data = fake_df,
+       aes(x = campaign_type,
+           y = predicted)) +
+  geom_bar(stat = 'identity',
+           alpha = 0.6,
+           fill = 'darkred') +
+  labs(x = 'Campaign type',
+       y = 'Cost',
+       title = 'Estimated cost contribution of campaign type',
+       subtitle = '') +
+  theme_economist()
+```
+
+### Admnisistrative cost per campaign type
+
+An examination of the average administrative cost per campaign type adds evidence to the above hypothesis.
+
+```{r}
+y <- x %>%
+  dplyr::filter(type == 'Administration') %>%
+  dplyr::group_by(campaign_type) %>%
+  dplyr::summarise(cost = mean(cost))
+
+ggplot(data = y,
+       aes(x = campaign_type,
+           y = cost)) +
+  geom_bar(stat = 'identity', alpha = 0.6,
+           fill = 'darkred') +
+  labs(x = 'Campaign type',
+       y = 'USD',
+       title = 'Administration cost by campaign type',
+       subtitle = '') +
+  theme_economist()
 ```
 
 ## Aggregate cost estimation
