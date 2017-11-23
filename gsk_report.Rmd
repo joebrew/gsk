@@ -380,7 +380,7 @@ The raw itemized data is below:
 ```{r}
 x <- df %>% arrange(source)
 names(x) <- toupper(names(x))
-DT::datatable(x)
+prettify(x)
 ```
 
 
@@ -393,7 +393,7 @@ x <- currency %>%
   filter(grepl('-01-01', date))
 x <- x %>% arrange(date)
 names(x) <- c('Currency', 'Date', 'Cost of 1 USD')
-DT::datatable(x)
+prettify(x)
 ```
 
 For inflation adjustment, we use the "Consumer Price Index" from the [United States Bureau of Labor and Statistics](http://data.bls.gov/cgi-bin/cpicalc.pl). 
@@ -405,7 +405,7 @@ x <- inflation %>%
   dplyr::select(year, value_2016) %>%
   dplyr::rename(`2016 USD %` = value_2016,
          `Date` = year)
-DT::datatable(x)
+prettify(x)
 ```
 
 All costs reported herein are in 2016 US Dollars.
@@ -416,7 +416,7 @@ We also adjust currency for purchasing price parity, as estimated by the World B
 
 Below is a table of the PPP values used for this conversion. Full code for the "back-engineering" is available on this paper's github repository [@brew].
 ```{r}
-DT::datatable(tidyr::spread(ppp %>%
+prettify(tidyr::spread(ppp %>%
                               filter(Year >= 2000) %>%
                               mutate(PPP = round(PPP, 2)), 
                             key = Year, 
@@ -554,7 +554,6 @@ df <- df %>%
 df <-
   left_join(df,
             ppp %>%
-              dplyr::select(-country) %>%
               dplyr::rename(country = Country,
                             year = Year) %>%
               dplyr::select(-`Country ID`),
@@ -609,11 +608,10 @@ The first elimination round left 135 articles for manual inspection. All were re
 
 The below diagram shows the flow of article selection:
 
-\begin{center}
+<div>
+<img src="img/prisma.jpg" alt="">
+</div>
 
-![](img/prisma.jpg)
-
-\end{center}
 
 ### Selected studies
 
@@ -627,7 +625,7 @@ temp <- papers %>%
                 all_authors,
                 url)
 names(temp) <- capitalize(gsub('_', ' ', names(temp)))
-DT::datatable(temp)
+prettify(temp)
 ```
 
 A full list is available in the appendix.
@@ -652,7 +650,7 @@ ggplot(data = x,
 What follows is a table of the same data
 
 ```{r}
-DT::datatable(x)
+prettify(x)
 ```
 
 
@@ -680,7 +678,7 @@ Below is a table of the same data.
 
 ```{r}
 names(x) <- c('Country', 'Articles')
-DT::datatable(x)
+prettify(x)
 ```
 
 
@@ -690,20 +688,50 @@ What follows are charts showing the distribution of dose-specific costs (both in
 
 ```{r}
 # Define function for charting distribution of costs based on type
-type_chart <- function(this_type){
+type_chart <- function(this_type,
+                       ppp = FALSE){
   temp <- df %>% filter(type == this_type)
-  the_mean <- mean(temp$cost)
-  g <- ggplot(data = temp,
-              aes(x = cost)) +
+  
+  if(ppp){
+    g <- ggplot(data = temp,
+                aes(x = cost_ppp))
+    xl <- '2016 US PPP-adjusted Dollars'
+    st <- 'Average PPP-adjusted cost of '
+    the_mean <- mean(temp$cost_ppp)
+  } else {
+    g <- ggplot(data = temp,
+              aes(x = cost))
+    xl <- '2016 US Dollars'
+    st <- 'Average cost of '
+    the_mean <- mean(temp$cost)
+  }
+  
+  g <- g +
     geom_density(fill = 'darkred', alpha = 0.5) +
     theme_economist() +
-    xlab('2016 US Dollars') +
+    xlab(xl) +
     ylab('Density') +
     geom_vline(xintercept = the_mean, lty = 2) +
     ggtitle(this_type) +
-    labs(subtitle = paste0('Average cost of ', round(the_mean, digits = 2)))
+    labs(subtitle = paste0(st, round(the_mean, digits = 2)))
   return(g)
 }
+
+type_chart_panel <- function(){
+  g <- ggplot(data = df,
+                aes(x = cost_ppp))
+  xl <- '2016 US PPP-adjusted Dollars (log-scale)'
+  g <- g +
+    geom_density(fill = 'darkred', alpha = 0.5) +
+    theme_economist() +
+    xlab(xl) +
+    ylab('Density') +
+    # geom_vline(aes(xintercept = mean(cost_ppp)), lty = 2) +
+    facet_wrap(~type) +
+    scale_x_log10()
+  g
+}
+
 ```
 
 ### Administration
@@ -712,6 +740,9 @@ The average administration cost per dose was close to \$2 USD, with half of stud
 
 ```{r}
 type_chart('Administration')
+type_chart('Administration',
+           ppp = TRUE)
+
 ```
 
  ### Equipment
@@ -720,6 +751,7 @@ type_chart('Administration')
 
 ```{r}
 type_chart('Equipment')
+type_chart('Equipment', ppp = TRUE)
 ```
 
  ### Human resources
@@ -728,6 +760,7 @@ Costs for human resources varied widely, but the distribution is distinctly left
 
 ```{r}
 type_chart('Human resources')
+type_chart('Human resources', ppp = TRUE)
 ```
 
 ### Sensitisation
@@ -736,6 +769,7 @@ Sensitisation costs were low across all studies. One outlier - an oral cholera v
 
 ```{r}
 type_chart('Sensitisation')
+type_chart('Sensitisation', ppp = TRUE)
 ```
 
  ### Training
@@ -744,6 +778,7 @@ Training costs were low across all studies The highest training costs were assoc
 
 ```{r}
 type_chart('Training')
+type_chart('Training', ppp = TRUE)
 ```
 
  ### Transportation
@@ -752,6 +787,7 @@ We observed wide variance in transporation costs. Though half of studies had cos
 
 ```{r}
 type_chart('Transportation')
+type_chart('Transportation', ppp = TRUE)
 ```
 
  ### Wastage
@@ -760,6 +796,7 @@ Wastage costs varied widely per study. Those with the highest costs involved Hep
 
 ```{r}
 type_chart('Wastage')
+type_chart('Wastage', ppp = TRUE)
 ```
 
 
@@ -769,12 +806,26 @@ The below table shows the same costs.
 ```{r}
 x <- df %>%
   dplyr::group_by(Item = type) %>%
-  dplyr::summarise(Average = mean(cost),
-                   Maximum = max(cost),
-                   Minimum = min(cost),
+  dplyr::summarise(Average = round(mean(cost), digits = 2),
+                   Maximum = round(max(cost), digits = 2),
+                   Minimum = round(min(cost), digits = 2),
                    articles = length(unique(source)))
-DT::datatable(x)
+prettify(x)
 ```
+
+
+The below table is identical to the above, but using PPP-adjusted costs
+
+```{r}
+x <- df %>%
+  dplyr::group_by(Item = type) %>%
+  dplyr::summarise(Average = round(mean(cost_ppp), digits = 2),
+                   Maximum = round(max(cost_ppp), digits = 2),
+                   Minimum = round(min(cost_ppp), digits = 2),
+                   articles = length(unique(source)))
+prettify(x)
+```
+
 
 ### Differences in cost estimations
 
@@ -804,6 +855,7 @@ ggplot(data = x,
   theme(axis.text.x = element_text(angle = 90)) +
   theme_economist()
 ```
+
 
 ### Cost per dose by campaign type
 
@@ -836,9 +888,44 @@ ggplot(data = fake_df,
   labs(x = 'Campaign type',
        y = 'Cost',
        title = 'Estimated cost contribution of campaign type',
-       subtitle = '') +
+       subtitle = '2016 USD') +
   theme_economist()
 ```
+
+We run the same estimations for PPP-adjusted costs to produce the below.
+
+
+```{r}
+x <- df %>%
+  dplyr::mutate(trial = ifelse(trial, 'Trial', 'Routine'),
+         introduction = ifelse(introduction, 'Introductory', 'Not introductory')) %>%
+  dplyr::mutate(campaign_type = paste0(trial, '-', introduction)) 
+fit <- lm(cost_ppp ~ type + campaign_type, data = x)
+ci <- confint(fit)
+ci <- broom::tidy(ci)
+ci$mid <- coef(fit)
+
+# Make a dataframe for predicting
+fake_df <- data_frame(type = 'Wastage',
+                      campaign_type = c('Routine-Introductory',
+                                        'Routine-Not introductory',
+                                        # 'Trial-Introductory',
+                                        'Trial-Not introductory'))
+fake_df$predicted <- predict(fit, fake_df) - coef(fit)['typeWastage']
+
+ggplot(data = fake_df,
+       aes(x = campaign_type,
+           y = predicted)) +
+  geom_bar(stat = 'identity',
+           alpha = 0.6,
+           fill = 'darkred') +
+  labs(x = 'Campaign type',
+       y = 'Cost',
+       title = 'Estimated cost contribution of campaign type',
+       subtitle = 'PPP-adjusted 2016 USD') +
+  theme_economist()
+```
+
 
 ### Admnisistrative cost per campaign type
 
@@ -862,6 +949,28 @@ ggplot(data = y,
   theme_economist()
 ```
 
+The below is the same data, but using PPP-adjusted costs.
+
+
+```{r}
+y <- x %>%
+  dplyr::filter(type == 'Administration') %>%
+  dplyr::group_by(campaign_type) %>%
+  dplyr::summarise(cost = mean(cost_ppp))
+
+ggplot(data = y,
+       aes(x = campaign_type,
+           y = cost)) +
+  geom_bar(stat = 'identity', alpha = 0.6,
+           fill = 'darkred') +
+  labs(x = 'Campaign type',
+       y = 'USD',
+       title = 'Administration cost by campaign type',
+       subtitle = '') +
+  theme_economist()
+```
+
+
 ## Aggregate cost estimation
 
 In order to estimate the average overall (non-vaccine) implementation cost per dose, we can run a Monte Carlo simulation. Performing 10,000 resamplings, we arrive at a distribution of the likely overall cost.
@@ -871,19 +980,28 @@ n <- 10000
 types <- sort(unique(df$type))
 length_types <- length(types)
 x <- data.frame(costs = rep(NA, n))
+x_ppp <- x
 for (j in 1:length(types)){
   x[,types[j]] <- NA
+  x_ppp[,types[j]] <- NA
 }
 for (i in 1:length(x$costs)){
   this_sample <- rep(NA, length_types)
+  this_sample_ppp <- rep(NA, length_types)
   for (j in 1:length(types)){
     sample_from_these <- df$cost[df$type == types[j]]
+    sample_from_these_ppp <- df$cost_ppp[df$type == types[j]]
     this_sample[j] <- sample(sample_from_these, 1)
+    this_sample_ppp[j] <- sample(sample_from_these_ppp, 1)
     x[i,types[j]] <- this_sample[j]
+    x_ppp[i,types[j]] <- this_sample_ppp[j]
   }
   x$costs[i] <- sum(this_sample, na.rm = TRUE)
+  x_ppp$costs[i] <- sum(this_sample_ppp, na.rm = TRUE)
 }
+```
 
+```{r}
 ggplot(data = x,
        aes(x = costs)) +
   geom_density(fill = 'darkgreen', alpha = 0.6) +
@@ -894,6 +1012,21 @@ ggplot(data = x,
   geom_vline(xintercept = mean(x$costs, na.rm = TRUE), lty = 2) +
   labs(subtitle = paste0('Average cost of ', round(mean(x$costs, na.rm = TRUE), digits = 2)))
 ```
+
+The below is the same visualization, using PPP-adjusted costs.
+
+```{r}
+ggplot(data = x_ppp,
+       aes(x = costs)) +
+  geom_density(fill = 'darkgreen', alpha = 0.6) +
+  theme_economist() +
+  xlab('2016 USD') +
+  ylab('Density') +
+  ggtitle('Total non-vaccine cost estimation') +
+  geom_vline(xintercept = mean(x_ppp$costs, na.rm = TRUE), lty = 2) +
+  labs(subtitle = paste0('Average PPP-adjusted cost of ', round(mean(x_ppp$costs, na.rm = TRUE), digits = 2)))
+```
+
 
 ## Temporal dimensions of vaccine cost
 
@@ -923,7 +1056,7 @@ What follows is a table of the same data:
 ```{r}
 x$avg <- round(x$avg, digits = 2)
 names(x) <- c('Year', 'Item', 'Average cost')
-DT::datatable(x)
+prettify(x)
 ```
 
 ## Geospatial determinants of vaccine cost
@@ -1051,7 +1184,7 @@ y$item <- gsub('type|TRUE', '', y$item)
 y$item <- Hmisc::capitalize(y$item)
 names(y) <- c('Item', 'Coefficient')
 row.names(y) <- NULL
-DT::datatable(y)
+prettify(y)
 ```
 
 
@@ -1137,7 +1270,7 @@ x <- x %>% dplyr::select(-lng, -lat, -introduction, -gdp)
 y <- x
 names(x) <- toupper(names(x))
 
-# DT::datatable(x)
+# prettify(x)
 ```
 
 
@@ -1147,7 +1280,7 @@ names(x) <- toupper(names(x))
 x <- x %>%
   dplyr::group_by(COUNTRY) %>%
   dplyr::summarise(PREDICTED = sum(PREDICTED))
-# DT::datatable(x)
+# prettify(x)
 ```
 
 
@@ -1158,7 +1291,7 @@ y <- y %>%
   dplyr::summarise(predicted = mean(predicted))
 total <- sum(y$predicted)
 names(y) <- c('Item', 'Average cost')
-# DT::datatable(y)
+# prettify(y)
 ```
 
 The below map shows overall (all-item) non-vaccine costs across Africa.
@@ -1232,7 +1365,7 @@ temp <- papers %>%
                 all_authors,
                 url)
 names(temp) <- capitalize(gsub('_', ' ', names(temp)))
-# DT::datatable(temp,
+# prettify(temp,
 #               options = list(pageLength = nrow(temp)))
 kable(temp)
 ```
