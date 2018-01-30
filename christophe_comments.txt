@@ -1,0 +1,10 @@
+There is still a point regarding the way the cost categories with “no data” are handled. My understanding is that these data gaps are replaced by the mean from studies reporting cost figures for the specific category.
+This approach is well suited in the context highly structured analysis that can be compared directly with one another ie the methodology is the same and consistent across studies.
+In this cases, it seems the studies cannot really be compared with inconsistent categories and definitions. Therefore taking figures from other studies to “fill the gap” does not seem very robust.
+Then summing averages across categories to come to an overall cost average might also be an overestimate if the average is taken only on studies having data. This can arise from inconsistent category definition eg  in a study, the cost can be included implicitly in another category which uses a broader category definition instead of a separate explicit category as in another study.
+ 
+Is it a correct understanding on our end? Or are we missing the point?
+ 
+If this is the case, I would suggest to present the overall cost (ideally per dose) as estimated in each paper then discuss what are the cost categories differences and not reported in each study. This would require some additional work to have clear tables but most can be taken already from the report you made. The discussion should address the differences/missing points across studies.
+ 
+Is Would you have the possibility to work on this? It might not be needed to go back to studies, but you know them better.

@@ -14,7 +14,7 @@ fig_width: 4
 bibliography: bibliography.bib
 ---
 
-Joe Brew and Elisa Sicuri
+Joe Brew, Christophe Sauboin, Fabien Debailleul, Elisa Sicuri
 
 ```{r, echo = FALSE, warning = FALSE, message = FALSE, comment = NA, error= FALSE, cache = FALSE}
 # No scientific notation
@@ -290,8 +290,7 @@ if('already_read.RData' %in% dir()){
   # Smaller africa
   africa_small <- thinnedSpatialPoly(SP = africa,
                                      minarea = 0,
-                                     tolerance = 5,
-                                     topologyPreserve = TRUE)
+                                     tolerance = 5)
   
   # Define whether it's a trial or not
   df$trial <- grepl('trial|Trial|TRIAL', df$source)
